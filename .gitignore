@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.env.*
+*.pem
+*.key
+.venv/
+__pycache__/
+.obsidian/
+private/
+raw/
+tmp/
