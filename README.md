@@ -6,6 +6,8 @@ Sisu 的个人认知与战略上下文：**Stable Core + Dynamic State + Decisio
 
 **统一决策入口：[联合决策协议](integration/decision_protocol.md)**。个人库负责目标、约束、决策与认知演化；私有 [cognition-kb](https://github.com/Sisu-z/cognition-kb) 负责相关框架、方法与原文证据。两个入口使用同一个只读加载器；原始笔记保留，不合仓、不改变认知库可见性。
 
+[已发布双入口验收记录](integration/verification.md)包含固定版本、真实使用检查、反馈回流与验证边界。
+
 ## 文件职责
 
 ```text
