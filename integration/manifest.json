@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "protocol": "integration/decision_protocol.md",
+  "repos": {
+    "personal": {
+      "repository": "Sisu-z/Sisuself-skill",
+      "required_files": [
+        "context/profile.md",
+        "context/current_state.md",
+        "context/principles.md",
+        "context/cognitive_model.md",
+        "context/decision_log.md",
+        "context/sources.md"
+      ]
+    },
+    "knowledge": {
+      "repository": "Sisu-z/cognition-kb",
+      "required_files": [
+        "08_AI知识包/00_AI_GUIDE.md",
+        "08_AI知识包/01_INDEX_概览.md"
+      ]
+    }
+  },
+  "review_files": ["references/september_review.md"],
+  "index": "08_AI知识包/01_INDEX.jsonl",
+  "routes": {
+    "business": [
+      "08_AI知识包/02_框架库/A1 刘勇 · AI创投与技术周期.md",
+      "08_AI知识包/02_框架库/M0 商业判断决策总框架.md",
+      "08_AI知识包/02_框架库/M1 跨来源范式总表.md",
+      "04_精华沉淀/B1 个人实践 · 机会判断与交付复盘.md"
+    ],
+    "learning": ["08_AI知识包/02_框架库/M1 跨来源范式总表.md"],
+    "general": ["08_AI知识包/02_框架库/M1 跨来源范式总表.md"]
+  }
+}

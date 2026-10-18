@@ -4,6 +4,8 @@ Sisu 的个人认知与战略上下文：**Stable Core + Dynamic State + Decisio
 
 面向需要理解其学习、科研、工程、职业与商业取舍的 Agent。目标是迅速形成正确的工作假设，不是复制全部人生记录。首次整理：2026-09-28。
 
+**统一决策入口：[联合决策协议](integration/decision_protocol.md)**。个人库负责目标、约束、决策与认知演化；私有 [cognition-kb](https://github.com/Sisu-z/cognition-kb) 负责相关框架、方法与原文证据。两个入口使用同一个只读加载器；原始笔记保留，不合仓、不改变认知库可见性。
+
 ## 文件职责
 
 ```text
@@ -24,11 +26,13 @@ Sisuself-skill/
 
 `profile/principles` 低频更新；`current_state` 按实质变化更新；`decision_log` 只追加；`cognitive_model` 保留冲突和演化。具体事实只在主要文件维护，其他文件用链接引用。
 
+新增资源：[九月去重与补录](references/september_review.md)、[联合读取清单](integration/manifest.json)、`scripts/joint_decision.py`（加载与反馈待审路由）、`tests/test_joint_decision.py`（可运行验证）。动态状态仍按各条的原始核验日期使用，不因维护入口而刷新。
+
 ## 让 Agent 读取
 
 可直接给 Agent 这段指令：
 
-> 读取 https://github.com/Sisu-z/Sisuself-skill 的最新默认分支，先读 SKILL.md，再按需读取 context 文件。报告读取的提交与状态日期；将用户事实、当前策略、假设和历史观点分开。结合这些背景回答我的任务，不要仅复述画像。
+> 读取 https://github.com/Sisu-z/Sisuself-skill 的最新默认分支，先读 SKILL.md 和 integration/decision_protocol.md。涉及我的决策时，联合读取私有 Sisu-z/cognition-kb，分别锁定两库 SHA，再取个人上下文、相关框架、索引和原文。报告版本、状态有效性与缺失项；将事实、假设、历史策略和当前决定分开。反馈按协议回对应库，不重复正文。
 
 支持 Git 的环境可克隆到普通工作目录；读取已有副本时，先检查是否有未提交改动，再快进同步：
 
@@ -46,6 +50,26 @@ git rev-parse HEAD
 **公开可读不等于自动加载或后台实时同步。** Agent 需要网络/文件读取能力；写入另需仓库权限与适用授权。网络不可用、无法解析版本、读到缓存或状态过期时，应明确说明。仓库没有配置后台同步或定时任务。
 
 根目录本身就是完整 Skill。支持本地技能目录的环境可按其规则将整个目录作为 `sisuself-skill` 加载；不要只复制 SKILL.md 而遗漏 context。普通浏览器对话也能按上述链接读取，不需要安装。首次交付仅创建仓库，没有改动本机技能安装目录。
+
+## 两库实际联动
+
+把已授权的两个仓库副本放在同级目录。从本库运行：
+
+```sh
+python3 scripts/joint_decision.py load --refresh --question '先开发产品还是先验证渠道与验收？' --output /tmp/sisu-joint-context.json
+```
+
+从 cognition-kb 运行相同问题：
+
+```sh
+python3 _工具/joint_decision.py load --refresh --question '先开发产品还是先验证渠道与验收？' --output /tmp/sisu-joint-context.json
+```
+
+其他路径传 `--personal-repo` / `--knowledge-repo`。程序读取 Git 固定提交；`--refresh` 只刷新远端引用，不改工作区。使用 `--metadata-only` 检查读取清单。缺库或权限不足返回不完整状态；没有网络可用本地快照并说明未核实，不能声称已取得最新远端。
+
+cognition-kb 保持私有，通过本地 Git 副本或鉴权连接读取。完整联合包不得提交到公开仓库。工具不生成所谓保证正确的决策，Agent 还需按协议比较方案、找反证和核实现实约束。
+
+反馈示例格式及待审队列命令见 [反馈回流](integration/decision_protocol.md#反馈回流)。记录反馈不等于已改知识库；有授权的 Agent 应完成去重、应用、相关索引重建、提交和回读。未采纳建议保持候选，不自动写成用户决定。
 
 ## 更新和版本历史
 
