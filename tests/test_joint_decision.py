@@ -207,7 +207,8 @@ class JointDecisionTest(unittest.TestCase):
     def test_feedback_candidates_methods_supersedes_and_invalid_inputs(self):
         _, result = self.feedback(self.record(status="candidate", scope="personal"))
         self.assertNotIn("context/decision_log.md", result["queued"][0]["target_files"])
-        _, result = self.feedback(self.record(id="fixture-M1", kind="method", supersedes="fixture-D1"))
+        _, result = self.feedback(self.record(id="fixture-M1", kind="method", supersedes="fixture-D1",
+                                              source_ids=[joint.B1_ID]))
         knowledge = [json.loads(line) for line in (self.queue / "knowledge.jsonl").read_text().splitlines()]
         self.assertEqual(knowledge[0]["summary"], "fixture decision")
         self.assertEqual(knowledge[0]["supersedes"], "fixture-D1")
@@ -217,6 +218,14 @@ class JointDecisionTest(unittest.TestCase):
             status, _ = self.feedback(self.record(id="invalid", **changes))
             self.assertEqual(status, 2)
         self.assertEqual(len((self.queue / "personal.jsonl").read_text().splitlines()), 2)
+
+    def test_generic_method_does_not_target_b1(self):
+        _, result = self.feedback(self.record(id="generic-method", kind="method", scope="knowledge",
+                                              source_ids=["essence-0003"]))
+        self.assertNotIn(joint.B1, result["queued"][0]["target_files"])
+        self.assertIn("source_ids", result["routing_note"])
+        _, observation = self.feedback(self.record(id="observation", kind="observation", scope="personal"))
+        self.assertIn("context/current_state.md", observation["queued"][0]["target_files"])
 
     def test_no_read_operation_changes_repository_refs_or_origin(self):
         before = [(self.git(root, "show-ref"), self.git(root, "remote", "get-url", "origin"))
@@ -294,6 +303,59 @@ class JointDecisionTest(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         self.assertTrue(json.loads(path.read_text())["complete"])
+
+    def test_business_semantics_prefer_curated_frameworks_over_noisy_job_and_case_matches(self):
+        queries = [
+            "我想用 AI 做一个小工具，再通过内容传播找到付费用户。应该先开发产品，还是先验证渠道、交付和验收？请结合我的个人条件和已有认知给出有主次的判断，指出尚不知道什么。",
+            "九月我想把开源工具、内容传播和资源机会串起来。现在想做一款 AI 小产品承接流量，怎样判断该投入多少，哪些条件没打通前应该先停？结合我的个人目标与认知材料给一个有主次的判断。",
+        ]
+        rows = [dict(record) for record in self.records]
+        for rid, title in (("fixture-s3", "S3 流量与私域"), ("fixture-s6", "S6 项目落地实操")):
+            path = "04_精华沉淀/" + title + ".md"
+            self.write(self.knowledge, path, "完整的主题方法正文")
+            rows.append({"id": rid, "title": title, "source": "精华沉淀（提炼成品）", "category": "",
+                         "path": path, "head": "主题方法", "chars": 10})
+        for rid, source, title in (("job-noise", "求职资料", "产品面试应该怎么问？怎么答？"),
+                                   ("pianmen-noise", "偏门资料", "一个人的小生意与流量项目怎么做")):
+            path = "06_资料原件/_md/" + source + "/" + title + ".md"
+            self.write(self.knowledge, path, "高噪声资料")
+            rows.append({"id": rid, "title": title, "source": source, "category": "个人条件与项目",
+                         "path": path, "head": " ".join(queries), "chars": 6})
+        self.write(self.knowledge, joint.INDEX, "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n")
+        self.commit(self.knowledge)
+        expected = [{"fixture-s3", "fixture-s6"}, {"fixture-s3", "fixture-s6", joint.B1_ID}]
+        for question, ids in zip(queries, expected):
+            with self.subTest(question=question):
+                _, packet = self.load("--question", question)
+                index = next(d for d in packet["documents"] if d["path"] == joint.INDEX)
+                self.assertEqual({row["id"] for row in index["matches"]}, ids)
+                self.assertFalse(any(row["source"] == "求职资料" for row in index["matches"]))
+        self.assertFalse(joint.query_terms("请结合我的个人条件给出有主次的判断，指出尚不知道什么。"))
+
+    def test_business_excludes_job_source_unless_explicitly_requested(self):
+        row = dict(self.records[1], id="job-noise", source="求职资料",
+                   title="客户机会", path="06_资料原件/_md/求职资料/客户机会.md")
+        self.assertEqual(joint.rank_records([row], "商业客户机会", "business"), [])
+        self.assertEqual(joint.rank_records([row], "客户机会求职面试", "business"), [row])
+
+    def test_framework_copy_and_original_share_one_content_body(self):
+        original = "04_精华沉淀/A1 刘勇 · AI创投与技术周期.md"
+        copied = "08_AI知识包/02_框架库/A1 刘勇 · AI创投与技术周期.md"
+        for path in (original, copied):
+            self.write(self.knowledge, path, "同一份完整战略框架")
+        self.manifest["routes"]["business"].append(copied)
+        self.write(self.personal, "integration/manifest.json", json.dumps(self.manifest))
+        rows = self.records + [{"id": "ly2026-a1", "title": Path(original).stem,
+                                "source": "独立来源", "category": "战略", "path": original,
+                                "head": "赛道成本", "chars": 10}]
+        self.write(self.knowledge, joint.INDEX, "\n".join(json.dumps(row) for row in rows) + "\n")
+        self.commit(self.personal)
+        self.commit(self.knowledge)
+        _, packet = self.load("--question", "商业赛道成本")
+        documents = [d for d in packet["documents"] if d["source_ids"] == ["ly2026-a1"]]
+        self.assertEqual(len(documents), 2)
+        self.assertEqual(sum("content" in d for d in documents), 1)
+        self.assertEqual(next(d for d in documents if "content_ref" in d)["content_ref"]["path"], copied)
 
 
 if __name__ == "__main__":

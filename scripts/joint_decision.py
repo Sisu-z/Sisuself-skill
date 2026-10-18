@@ -20,6 +20,15 @@ KNOWLEDGE_FILES = ["08_AI知识包/00_AI_GUIDE.md", "08_AI知识包/01_INDEX_概
 INDEX = "08_AI知识包/01_INDEX.jsonl"
 B1 = "04_精华沉淀/B1 个人实践 · 机会判断与交付复盘.md"
 B1_ID = "sisu202609-b1"
+CURATED_ROUTES = [
+    ("S3 流量与私域", ("内容", "渠道", "流量", "传播", "私域", "获客")),
+    ("S6 项目落地实操", ("交付", "验收", "投入", "预算", "项目落地")),
+    ("B1 个人实践", ("开源", "九月", "9月", "复盘", "责任", "交易")),
+    ("S1 销售力", ("销售", "报价", "沟通", "成交", "谈单")),
+    ("A1 刘勇", ("策略", "赛道", "稀缺", "成本", "技术周期", "战略")),
+]
+CAREER_QUERY = r"求职|找工作|应聘|招聘|面试|简历|谈薪|职业|岗位|job|interview"
+STOP_WORDS = set("我想用 我想 应该 先开发 还是 请结合 结合 我的 个人条件 个人目标 个人 已有认知 认知材料 认知 给出 有主次 主次 判断 指出 尚不知道 不知道 什么 现在 想做 一款 一个 怎样 多少 哪些 条件 没打通 打通 前应该 前应 应该 先停 再通过 通过 找到 串起来 起来 能不能 可以 帮我 请 已有 尚不 业务 商业".split())
 
 
 def git(root, *args):
@@ -236,14 +245,7 @@ class Packet:
         except (ValueError, TypeError) as error:
             self.missing("knowledge", path, "invalid index: " + str(error))
             records = []
-        terms = query_terms(self.args.question)
-        scored = []
-        for record in records:
-            score = sum(weight * sum(term in str(record[field]).lower() for term in terms)
-                        for field, weight in (("title", 5), ("head", 2), ("category", 1)))
-            if score:
-                scored.append((score, record))
-        hits = [r for _, r in sorted(scored, key=lambda pair: (-pair[0], pair[1]["id"]))[:3]]
+        hits = rank_records(records, self.args.question, self.result["topic"])
         for record in hits:
             self.read("knowledge", record["path"])
             doc = self.document("knowledge", record["path"])
@@ -261,6 +263,17 @@ class Packet:
                     candidates = [r for r in records if r["title"] == PurePosixPath(document["path"]).stem]
                 if len(candidates) == 1:
                     document["source_ids"] = [candidates[0]["id"]]
+        seen_content = {}
+        for document in self.result["documents"]:
+            if document["repo"] != "knowledge" or not document["source_ids"] or "content" not in document:
+                continue
+            key = (tuple(document["source_ids"]), document["sha256"])
+            if key in seen_content:
+                document.pop("content")
+                document["content_ref"] = {"repo": "knowledge", "path": seen_content[key],
+                                           "source_id": document["source_ids"][0]}
+            else:
+                seen_content[key] = document["path"]
         index_doc = self.document("knowledge", path)
         index_doc.pop("content", None)
         index_doc.update({"entry_count": len(records), "matches": hits,
@@ -268,10 +281,54 @@ class Packet:
 
 
 def query_terms(question):
-    words = re.findall(r"[a-z0-9_]{2,}|[\u4e00-\u9fff]+", question.lower())
-    return set(term for word in words for term in
-               ([word] + [word[i:i + 2] for i in range(len(word) - 1)]
-                if re.search(r"[\u4e00-\u9fff]", word) else [word]))
+    cleaned = question.lower()
+    for word in sorted(STOP_WORDS, key=len, reverse=True):
+        cleaned = cleaned.replace(word, " ")
+    words = re.findall(r"[a-z0-9_]{2,}|[\u4e00-\u9fff]{2,}", cleaned)
+    terms = set(term for word in words for term in
+                ([word] + [word[i:i + 2] for i in range(len(word) - 1)]
+                 if re.search(r"[\u4e00-\u9fff]", word) else [word]))
+    return terms - STOP_WORDS - {"what", "how", "can", "my", "should", "want", "please",
+                                 "with", "the", "and", "or", "to", "for"}
+
+
+def term_matches(term, text):
+    text = text.lower()
+    if re.fullmatch(r"[a-z0-9_]+", term):
+        return re.search(r"(?<![a-z0-9_])" + re.escape(term) + r"(?![a-z0-9_])", text) is not None
+    return term in text
+
+
+def rank_records(records, question, topic):
+    career = re.search(CAREER_QUERY, question, re.I) is not None
+    allowed = [record for record in records if not (topic == "business" and not career and
+               (record["id"].startswith("job-") or record["source"] == "求职资料"
+                or "/_md/求职资料/" in record["path"]))]
+    curated = []
+    if topic == "business" and not career:
+        for prefix, keywords in CURATED_ROUTES:
+            matched = sum(word in question.lower() for word in keywords)
+            if matched:
+                curated.extend((matched, record) for record in allowed
+                               if record["path"].startswith("04_精华沉淀/")
+                               and record["title"].startswith(prefix))
+    if curated:
+        # A broad decision question needs relevant frameworks, not loosely matched
+        # old examples. Do not fill the remaining slots just to return three hits.
+        return [record for _, record in sorted(curated, key=lambda pair: (-pair[0], pair[1]["id"]))[:3]]
+    terms, scored = query_terms(question), []
+    for record in allowed:
+        matches = {field: {term for term in terms if term_matches(term, record[field])}
+                   for field in ("title", "head", "category")}
+        distinct = set().union(*matches.values())
+        if len(distinct) < 2 or not matches["title"]:
+            continue
+        score = sum(weight * len(matches[field]) for field, weight in
+                    (("title", 5), ("head", 2), ("category", 1)))
+        if record["path"].startswith("04_精华沉淀/") and "/_迭代/" not in record["path"]:
+            score += 10
+        scored.append((score, record))
+    return [record for _, record in sorted(scored, key=lambda pair: (-pair[0], pair[1]["id"]))[:3]]
 
 
 def choose_topic(args):
@@ -317,9 +374,12 @@ def feedback_targets(record, repo):
     if repo == "personal":
         if record["kind"] == "decision" and record["status"] == "confirmed":
             return ["context/decision_log.md", "context/current_state.md"]
+        if record["kind"] == "observation" and record["status"] == "confirmed":
+            return ["context/current_state.md", "context/sources.md"]
         return ["context/cognitive_model.md", "context/sources.md"]
     targets = ["04_精华沉淀/_迭代/来源登记.md", "04_精华沉淀/_迭代/待裁决.md"]
-    if record["kind"] == "method":
+    if record["kind"] == "method" and any(source == B1_ID or source.startswith("B1-")
+                                          for source in record["source_ids"]):
         targets.append("04_精华沉淀/B1 个人实践 · 机会判断与交付复盘.md")
     return targets
 
@@ -379,6 +439,7 @@ def enqueue_feedback(args):
                 added.append({"repo": repo, "id": rid, "target_repo": row["target_repo"],
                               "target_files": row["target_files"]})
     return {"queued": added, "already_queued": existing, "published": False,
+            "routing_note": "target_files 是候选；应用者须按 source_ids 查询主索引定位对应正文，不能机械全部写入。",
             "message": "Local feedback queue only; repository content and remotes unchanged."}
 
 
